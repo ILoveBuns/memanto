@@ -49,6 +49,10 @@ _config_manager = ConfigManager()
 STATIC_DIR = Path(__file__).parent.parent / "static"
 _SAFE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# Upper bound on the activity window a caller can request. Matches the log's
+# own retention, so a larger value could only ever scan empty days.
+ACTIVITY_MAX_DAYS = 30
+
 
 def _validate_agent_id(agent_id: str) -> None:
     """Reject agent identifiers that cannot be safely embedded in file paths."""
@@ -798,6 +802,40 @@ async def get_connections(_: None = Depends(_require_local)):
             }
         )
     return {"cwd": str(Path.cwd()), "connections": items}
+
+
+@router.get("/api/ui/sessions")
+async def get_sessions(days: int = 7, _: None = Depends(_require_local)):
+    """MEMANTO sessions with the tools that took part, plus per-tool liveness.
+
+    Complements `/api/ui/connections`, which reports where MEMANTO is
+    *installed*. This reports what has actually been running.
+    """
+    from memanto.app.services.activity_service import get_activity_service
+
+    days = max(1, min(int(days), ACTIVITY_MAX_DAYS))
+    service = get_activity_service()
+    tools = service.live_tools(days)
+    return {
+        "days": days,
+        "sessions": service.list_sessions(days),
+        "tools": tools,
+        "live_count": sum(1 for t in tools if t["live"]),
+    }
+
+
+@router.get("/api/ui/sessions/{session_id}")
+async def get_session_detail(
+    session_id: str, days: int = 30, _: None = Depends(_require_local)
+):
+    """One MEMANTO session's summary plus its full event timeline."""
+    from memanto.app.services.activity_service import get_activity_service
+
+    days = max(1, min(int(days), ACTIVITY_MAX_DAYS))
+    detail = get_activity_service().get_session(session_id, days)
+    if detail["session"] is None:
+        raise HTTPException(status_code=404, detail=f"Unknown session: {session_id}")
+    return detail
 
 
 @router.get("/api/ui/browse")

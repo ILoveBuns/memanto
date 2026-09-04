@@ -1081,6 +1081,261 @@
             color: var(--text-secondary);
         }
 
+        /* ── Live context mesh ── */
+        .mesh-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px 0;
+            margin-bottom: 22px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mesh-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .mesh-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mesh-sub {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+        }
+
+        .mesh-canvas {
+            position: relative;
+            height: 340px;
+            width: 100%;
+        }
+
+        .mesh-canvas svg {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .mesh-edge {
+            stroke: var(--border-hover);
+            stroke-width: 1;
+            fill: none;
+        }
+
+        .mesh-edge.live {
+            stroke: var(--accent);
+            stroke-width: 1.5;
+            opacity: 0.55;
+        }
+
+        .mesh-node {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        /* The logo sits bare on the panel - no ring, no plate, no rounding.
+           agentLogo() paints a per-agent background inline, so !important is
+           what actually removes it. */
+        .mesh-node .agent-logo {
+            background: transparent !important;
+            border: none !important;
+            border-radius: 0;
+            box-shadow: none;
+            transition: transform 0.2s ease;
+        }
+
+        .mesh-node.idle .agent-logo {
+            opacity: 0.5;
+            filter: grayscale(0.6);
+        }
+
+        .mesh-node:hover .agent-logo {
+            transform: scale(1.1);
+        }
+
+        .mesh-node .mesh-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .mesh-node .mesh-meta {
+            font-size: 9px;
+            font-family: var(--font-mono);
+            color: var(--text-dim);
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        @keyframes meshBreathe {
+            0%, 100% { box-shadow: 0 0 0 3px var(--success-bg); }
+            50%      { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.04); }
+        }
+
+        .mesh-hub {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 50% 40%, #0d1b20, var(--bg-card));
+            border: 1px solid var(--accent);
+            box-shadow: 0 0 40px var(--accent-glow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            z-index: 3;
+        }
+
+        .mesh-hub .mesh-hub-name {
+            font-size: 10px;
+            font-family: var(--font-mono);
+            letter-spacing: 1.5px;
+            color: var(--accent);
+        }
+
+        .mesh-hub .mesh-hub-count {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .mesh-hub .mesh-hub-unit {
+            font-size: 8px;
+            font-family: var(--font-mono);
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .mesh-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-dim);
+            font-size: 13px;
+            text-align: center;
+            padding: 0 30px;
+            line-height: 1.6;
+        }
+
+        /* ── MEMANTO sessions ── */
+        .sess-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s ease;
+        }
+
+        .sess-row:hover {
+            border-color: var(--border-hover);
+        }
+
+        .sess-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: var(--text-dim);
+        }
+
+        .sess-dot.live {
+            background: var(--success);
+            box-shadow: 0 0 0 3px var(--success-bg);
+            animation: meshBreathe 2.4s ease-in-out infinite;
+        }
+
+        .sess-dot.active { background: var(--accent); }
+
+        .sess-agent {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 120px;
+        }
+
+        .sess-id {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .sess-tools {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 8px;
+        }
+
+        .sess-tools .agent-logo {
+            background: transparent !important;
+            border: none !important;
+            border-radius: 0;
+        }
+
+        .sess-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-left: auto;
+            font-family: var(--font-mono);
+            white-space: nowrap;
+        }
+
+        .conn-live-badge {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 9px;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--success);
+        }
+
+        .evt-row {
+            display: grid;
+            grid-template-columns: 150px 90px 1fr;
+            gap: 12px;
+            padding: 7px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+        }
+
+        .evt-row .evt-op.remember { color: var(--success); }
+        .evt-row .evt-op.recall { color: var(--accent); }
+        .evt-row .evt-op.answer { color: var(--indigo); }
+
         /* ── Modal ── */
         .modal-backdrop {
             position: fixed;
@@ -2601,6 +2856,8 @@
                     <button class="btn btn-primary btn-sm" onclick="openConnectModal()">+ Connect a Project</button>
                     <button class="btn btn-secondary btn-sm" onclick="loadConnections()">Refresh</button>
                 </div>
+                <div id="contextMesh"></div>
+                <div id="sessionList"></div>
                 <div id="connectionsGrid">
                     <div class="loading-overlay"><span class="spinner"></span> Loading connections...</div>
                 </div>
@@ -2690,7 +2947,7 @@
            ================================================================ */
 
         // State
-        const S = { config: null, agentId: null, token: null, memories: [], charts: {}, connections: [], activeConnection: null, cwd: '' };
+        const S = { config: null, agentId: null, token: null, memories: [], charts: {}, connections: [], activeConnection: null, cwd: '', activity: null };
 
         // API helper
         async function api(method, path, body) {
@@ -2818,7 +3075,8 @@
                 if (btn.dataset.page === 'dashboard') loadDashboard();
                 if (btn.dataset.page === 'conflicts') loadConflicts();
                 if (btn.dataset.page === 'policy') loadPolicyPage();
-                if (btn.dataset.page === 'connections') loadConnections();
+                if (btn.dataset.page === 'connections') { loadConnections(); startMeshPolling(); }
+                else stopMeshPolling();
                 if (btn.dataset.page === 'migrate') openMigrate();
                 if (btn.dataset.page === 'history' && !S._historyLoaded) { loadHistory(); S._historyLoaded = true; }
             });
@@ -5876,6 +6134,247 @@
             if (activePage === 'analytics') { try { await loadAnalytics(); } catch { } }
         }
 
+        // ================================================================
+        // LIVE CONNECTIONS + MEMANTO SESSIONS
+        // "Installed" lives in /api/ui/connections; this is what actually ran.
+        // ================================================================
+
+        const MESH_REFRESH_MS = 15000;
+        const MESH_MAX_NODES = 8;
+        let meshTimer = null;
+
+        async function loadSessionActivity() {
+            try {
+                S.activity = await api('GET', '/api/ui/sessions?days=7');
+            } catch (e) {
+                S.activity = { sessions: [], tools: [], live_count: 0, error: e.message };
+            }
+            renderContextMesh();
+            renderSessionList();
+            // Live badges decorate the connection cards, so they have to be
+            // repainted whenever the activity data changes.
+            if (S.connections.length) renderConnectionsGrid();
+        }
+
+        function startMeshPolling() {
+            stopMeshPolling();
+            // Liveness decays on a timer, so a static page would keep claiming a
+            // tool is connected long after it went quiet.
+            meshTimer = setInterval(loadSessionActivity, MESH_REFRESH_MS);
+        }
+
+        function stopMeshPolling() {
+            if (meshTimer) { clearInterval(meshTimer); meshTimer = null; }
+        }
+
+        function toolDisplay(tool) {
+            const conn = S.connections.find(c => c.name === tool);
+            if (conn) return conn.display_name;
+            const entry = (S.activity?.tools || []).find(t => t.tool === tool);
+            return entry?.display || tool;
+        }
+
+        function renderContextMesh() {
+            const box = document.getElementById('contextMesh');
+            if (!box) return;
+            const data = S.activity;
+            if (!data) { box.innerHTML = ''; return; }
+            if (data.error) {
+                box.innerHTML = `<div class="mesh-panel"><div class="mesh-head">
+                        <div class="mesh-title">Connected tools</div>
+                    </div>
+                    <div class="mesh-canvas"><div class="mesh-empty">
+                        <div>
+                            <div style="color:var(--error);margin-bottom:8px">Could not load activity: ${escHtml(data.error)}</div>
+                            <div>If Memanto was updated while the server was running, restart it
+                            (<code>memanto serve</code>) so it picks up the new routes.</div>
+                        </div>
+                    </div></div></div>`;
+                return;
+            }
+
+            const nodes = (data.tools || [])
+                .filter(t => t.tool !== 'unknown')
+                .slice(0, MESH_MAX_NODES);
+            // Count what the diagram shows, not what the log saw: an
+            // unidentified caller is not a connected tool.
+            const liveNodes = nodes.filter(t => t.live).length;
+
+            const header = `<div class="mesh-head">
+                <div class="mesh-title">
+                    <span class="sess-dot ${liveNodes ? 'live' : ''}"></span>
+                    Connected tools
+                </div>
+                <div class="mesh-sub">${liveNodes} live now · ${nodes.length} active in last 7 days</div>
+            </div>`;
+
+            if (!nodes.length) {
+                box.innerHTML = `<div class="mesh-panel">${header}
+                    <div class="mesh-canvas"><div class="mesh-empty">
+                        No tool activity recorded yet.<br>
+                        Run <code>memanto remember</code> or <code>recall</code> from a connected
+                        editor and it will appear here.
+                    </div></div></div>`;
+                return;
+            }
+
+            box.innerHTML = `<div class="mesh-panel">${header}
+                <div class="mesh-canvas" id="meshCanvas"></div>
+            </div>`;
+            drawMesh(nodes, liveNodes);
+        }
+
+        function drawMesh(nodes, liveCount) {
+            const canvas = document.getElementById('meshCanvas');
+            if (!canvas) return;
+            const W = canvas.clientWidth || 720;
+            const H = canvas.clientHeight || 340;
+            const cx = W / 2, cy = H / 2;
+            const ry = Math.max(90, H / 2 - 58);
+            // Capped against the vertical radius: a full-width ellipse flattens
+            // into a line and stops reading as tools around a hub.
+            const rx = Math.min(Math.max(160, W / 2 - 120), ry * 1.9);
+
+            const pos = {};
+            nodes.forEach((n, i) => {
+                const angle = -Math.PI / 2 + (i * 2 * Math.PI) / nodes.length;
+                pos[n.tool] = { x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) };
+            });
+
+            // Spokes only: every tool is joined to MEMANTO and to nothing else,
+            // because MEMANTO is the only thing they actually share. Each line
+            // stops short at both ends so it neither underlaps the hub disc nor
+            // strikes through the tool's label.
+            const HUB_GAP = 52, NODE_GAP = 40;
+            const spokes = nodes.map(n => {
+                const p = pos[n.tool];
+                const dx = p.x - cx, dy = p.y - cy;
+                const len = Math.hypot(dx, dy) || 1;
+                const ux = dx / len, uy = dy / len;
+                return `<line class="mesh-edge${n.live ? ' live' : ''}"
+                    x1="${cx + ux * HUB_GAP}" y1="${cy + uy * HUB_GAP}"
+                    x2="${p.x - ux * NODE_GAP}" y2="${p.y - uy * NODE_GAP}"></line>`;
+            }).join('');
+
+            const nodeHtml = nodes.map(n => {
+                const p = pos[n.tool];
+                const detail = n.live ? 'live now' : relAgo(n.last_seen);
+                return `<div class="mesh-node ${n.live ? 'live' : 'idle'}" style="left:${p.x}px;top:${p.y}px"
+                        title="${escHtml(toolDisplay(n.tool))} — ${n.memories_written} written, ${n.memories_read} read"
+                        onclick="selectConnection('${escHtml(n.tool)}')">
+                    ${agentLogo(n.tool, true)}
+                    <div class="mesh-label">${escHtml(toolDisplay(n.tool))}</div>
+                    <div class="mesh-meta">${escHtml(detail)}</div>
+                </div>`;
+            }).join('');
+
+            canvas.innerHTML = `<svg width="${W}" height="${H}">${spokes}</svg>
+                <div class="mesh-hub" style="left:${cx}px;top:${cy}px">
+                    <div class="mesh-hub-name">MEMANTO</div>
+                    <div class="mesh-hub-count">${liveCount}</div>
+                    <div class="mesh-hub-unit">live</div>
+                </div>
+                ${nodeHtml}`;
+        }
+
+        // Redraw on resize: node positions are computed in pixels, so a resized
+        // panel would leave them detached from their spokes.
+        let meshResizeTimer = null;
+        window.addEventListener('resize', () => {
+            if (!document.getElementById('meshCanvas')) return;
+            clearTimeout(meshResizeTimer);
+            meshResizeTimer = setTimeout(renderContextMesh, 150);
+        });
+
+        function renderSessionList() {
+            const box = document.getElementById('sessionList');
+            if (!box) return;
+            if (S.activity?.error) { box.innerHTML = ''; return; }
+            const sessions = S.activity?.sessions || [];
+            if (!sessions.length) {
+                box.innerHTML = `<div class="conn-section-label">Sessions (last 7 days)</div>
+                    <p style="color:var(--text-dim);font-size:13px;padding:4px 0">
+                    No MEMANTO sessions recorded yet.
+                    <a href="#" onclick="goToPage('agents');return false" style="color:var(--accent);text-decoration:none">Activate an agent</a>
+                    to start one.</p>`;
+                return;
+            }
+            box.innerHTML = `<div class="conn-section-label">Sessions (last 7 days)</div>` +
+                sessions.map(s => {
+                    const logos = s.tools.length
+                        ? s.tools.map(t => `<span title="${escHtml(toolDisplay(t.tool))}">${agentLogo(t.tool)}</span>`).join('')
+                        : '<span style="font-size:11px;color:var(--text-dim)">no tool identified</span>';
+                    return `<div class="sess-row" onclick="openSessionTimeline('${escHtml(s.session_id)}')">
+                        <span class="sess-dot ${s.status}"></span>
+                        <span class="sess-agent">${escHtml(s.agent_id || '—')}</span>
+                        <span class="sess-id">${escHtml(s.session_id)}</span>
+                        <span class="sess-tools">${logos}</span>
+                        <span class="sess-meta">${s.memories_written}w / ${s.memories_read}r · ${relAgo(s.last_seen)}</span>
+                    </div>`;
+                }).join('');
+        }
+
+        function closeSessionTimeline() {
+            document.getElementById('sessionTimelineModal')?.remove();
+        }
+
+        async function openSessionTimeline(sessionId) {
+            closeSessionTimeline();
+            const modal = document.createElement('div');
+            modal.className = 'modal-backdrop';
+            modal.id = 'sessionTimelineModal';
+            modal.onclick = closeSessionTimeline;
+            modal.innerHTML = `<div class="modal" onclick="event.stopPropagation()" style="max-width:760px;width:100%">
+                <div class="modal-header">
+                    <h3>Session ${escHtml(sessionId)}</h3>
+                    <button class="modal-close" onclick="closeSessionTimeline()">×</button>
+                </div>
+                <div id="sessTimeline" style="max-height:60vh;overflow:auto">
+                    <div class="loading-overlay"><span class="spinner"></span> Loading session...</div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+            try {
+                const res = await api('GET', `/api/ui/sessions/${encodeURIComponent(sessionId)}?days=30`);
+                const s = res.session || {};
+                const events = res.events || [];
+                const rows = events.map(e => {
+                    const detail = e.op === 'remember' ? `wrote ${e.n || 1}` : `returned ${e.n || 0}`;
+                    return `<div class="evt-row">
+                        <span>${fmtDate(e.ts)}</span>
+                        <span class="evt-op ${escHtml(e.op)}">${escHtml(e.op)}</span>
+                        <span>${escHtml(toolDisplay(e.tool))} · ${detail}</span>
+                    </div>`;
+                }).join('');
+                document.getElementById('sessTimeline').innerHTML = `
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+                        Agent ${escHtml(s.agent_id || '—')} · ${escHtml(s.status || '')} ·
+                        ${s.memories_written || 0} written / ${s.memories_read || 0} read ·
+                        started ${fmtDate(s.started_at)}${s.expires_at ? ' · expires ' + fmtDate(s.expires_at) : ''}
+                    </div>
+                    <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-dim);word-break:break-all;margin-bottom:14px">
+                        ${escHtml(s.project_dir || '')}
+                    </div>
+                    ${rows || '<p style="color:var(--text-dim);font-size:13px">No events recorded for this session.</p>'}`;
+            } catch (e) {
+                document.getElementById('sessTimeline').innerHTML =
+                    `<p style="color:var(--error)">Failed to load session: ${escHtml(e.message)}</p>`;
+            }
+        }
+
+        function relAgo(iso) {
+            if (!iso) return '—';
+            const then = new Date(iso).getTime();
+            if (isNaN(then)) return '—';
+            const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+            if (secs < 60) return 'just now';
+            const mins = Math.round(secs / 60);
+            if (mins < 60) return `${mins}m ago`;
+            const hours = Math.round(mins / 60);
+            if (hours < 24) return `${hours}h ago`;
+            return `${Math.round(hours / 24)}d ago`;
+        }
+
         async function loadConnections() {
             const grid = document.getElementById('connectionsGrid');
             const details = document.getElementById('connectionDetails');
@@ -5886,6 +6385,7 @@
                 S.connections = res.connections || [];
                 S.cwd = res.cwd || '';
                 renderConnectionsGrid();
+                loadSessionActivity();
                 if (S.activeConnection) {
                     const stillThere = S.connections.find(c => c.name === S.activeConnection);
                     if (stillThere) renderConnectionDetails(stillThere);
@@ -5904,7 +6404,12 @@
                 const isMuted = count === 0 && !c.installed_global;
                 const isActive = S.activeConnection === c.name;
                 const projectsLabel = count === 1 ? '1 project' : `${count} projects`;
-                html += `<div class="conn-card${isActive ? ' active' : ''}${isMuted ? ' muted' : ''}" onclick="selectConnection('${escHtml(c.name)}')">
+                const toolStats = (S.activity?.tools || []).find(t => t.tool === c.name);
+                const liveHtml = toolStats?.live
+                    ? '<div class="conn-live-badge"><span class="sess-dot live"></span>live</div>'
+                    : '';
+                html += `<div class="conn-card${isActive ? ' active' : ''}${isMuted && !toolStats?.live ? ' muted' : ''}" onclick="selectConnection('${escHtml(c.name)}')">
+                    ${liveHtml}
                     <button class="conn-add" onclick="event.stopPropagation(); openConnectModal('${escHtml(c.name)}')" title="Connect this agent to a project">+</button>
                     <div class="conn-name">${agentLogo(c.name, true)}<span>${escHtml(c.display_name)}</span></div>
                     <div class="conn-id">${escHtml(c.name)}</div>

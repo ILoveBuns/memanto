@@ -15,6 +15,7 @@ from rich.panel import Panel
 
 from memanto.app.constants import SourceType
 from memanto.app.core import is_valid_source
+from memanto.app.utils.client_identity import detect_client
 from memanto.app.utils.temporal_helpers import get_yesterday_range, utc_date_str
 from memanto.cli.commands._shared import (
     BOLD_PRIMARY,
@@ -64,11 +65,12 @@ def remember(
         0.8, "--confidence", "-c", help="Confidence score (0.0-1.0)"
     ),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
-    source: str = typer.Option(
-        "user",
+    source: str | None = typer.Option(
+        None,
         "--source",
         "-s",
-        help="Who wrote the memory (e.g., user, agent, cursor, codex, claude_code)",
+        help="Who wrote the memory. Defaults to the detected calling tool "
+        "(e.g. claude-code, cursor), or 'user' when no tool is identified.",
     ),
     provenance: str = typer.Option(
         "explicit_statement",
@@ -269,6 +271,13 @@ def remember(
 
     # Parse tags
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    # An explicit --source always wins. Otherwise attribute the write to the
+    # tool that ran this command, so the Connections view can show which agent
+    # produced which memory; a bare terminal stays "user".
+    if source is None:
+        detected = detect_client()
+        source = detected.tool if detected.is_known else "user"
 
     if not is_valid_source(source):
         _error(
