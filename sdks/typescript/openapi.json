@@ -3809,6 +3809,54 @@
         }
       }
     },
+    "/api/ui/conflicts/generate/stream": {
+      "post": {
+        "tags": [
+          "Web UI"
+        ],
+        "summary": "Generate Conflict Report Stream",
+        "description": "Stream conflict-detection progress from Moorche agent/run as SSE.",
+        "operationId": "generate_conflict_report_stream_api_ui_conflicts_generate_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ui/conflicts/resolve": {
       "post": {
         "tags": [
