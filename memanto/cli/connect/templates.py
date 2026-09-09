@@ -62,7 +62,7 @@ Always categorize the source of the memory. Valid options:
 ## Source Types
 
 Always specify the tool or agent creating the memory.
-- For AI agents: Use the agent name (e.g., `--source claude_code` or `--source cursor`)
+- For AI agents: Use your own agent name — for you that is `--source "__TOOL__"`
 - Generic fallbacks when no specific writer applies: `user`, `agent`, `tool`, `system`
 - Any label works, up to 64 letters, digits, `.`, `_`, or `-` (no spaces)
 
@@ -85,21 +85,21 @@ Conventions:
 ### Session Start
 ```bash
 # recall — load raw context (instructions, decisions, goals) to guide this session
-memanto recall "instructions decisions goals" --limit 20
+memanto recall "instructions decisions goals" --limit 20 --tool "__TOOL__"
 
 # answer — get a direct synthesized summary of pending commitments
-memanto answer "What are my pending commitments?"
+memanto answer "What are my pending commitments?" --tool "__TOOL__"
 ```
 
 ### After Important Work
 ```bash
-memanto remember "Implemented X using approach Y because Z. Commit abc123." --type decision --tags "feature-x" --confidence 0.95 --provenance "inferred" --source "claude_code"
-memanto remember "Learned that batch ops reduce API calls 100x." --type learning --tags "performance" --confidence 0.85 --provenance "observed" --source "claude_code"
+memanto remember "Implemented X using approach Y because Z. Commit abc123." --type decision --tags "feature-x" --confidence 0.95 --provenance "inferred" --source "__TOOL__"
+memanto remember "Learned that batch ops reduce API calls 100x." --type learning --tags "performance" --confidence 0.85 --provenance "observed" --source "__TOOL__"
 ```
 
 ### When User Corrects You
 ```bash
-memanto remember "User corrected: prefer pytest over unittest." --type learning --tags "correction,testing" --confidence 1.0 --provenance "corrected" --source "claude_code"
+memanto remember "User corrected: prefer pytest over unittest." --type learning --tags "correction,testing" --confidence 1.0 --provenance "corrected" --source "__TOOL__"
 ```
 
 ### Choosing Between recall and answer
@@ -119,10 +119,10 @@ These are **equal-priority tools**. Pick the right one — do NOT always default
 
 ```bash
 # Use recall — need raw context to work from
-memanto recall "authentication approach" --limit 10
+memanto recall "authentication approach" --limit 10 --tool "__TOOL__"
 
 # Use answer — need a direct synthesized answer
-memanto answer "What auth approach did we decide on and why?"
+memanto answer "What auth approach did we decide on and why?" --tool "__TOOL__"
 ```
 
 ## Pitfalls to Avoid
@@ -148,20 +148,26 @@ memanto answer "What auth approach did we decide on and why?"
 
 ## Command Reference
 
+Identify yourself on every call: `--source "__TOOL__"` when storing,
+`--tool "__TOOL__"` when reading. That is how MEMANTO knows which agent is
+talking to it - it drives the live connection view and the per-session tool
+attribution. Without it MEMANTO has to guess from environment variables, which
+is unreliable and fails outright for some tools.
+
 ```bash
 # Store memory
-memanto remember "content" --type TYPE --tags "tag1,tag2" --confidence 0.9 --provenance "inferred" --source "claude_code"
+memanto remember "content" --type TYPE --tags "tag1,tag2" --confidence 0.9 --provenance "inferred" --source "__TOOL__"
 
 # Raw memory search (use for context-building, multi-step tasks)
-memanto recall "query" --limit 10 --type TYPE --min-similarity 0.8
+memanto recall "query" --limit 10 --type TYPE --min-similarity 0.8 --tool "__TOOL__"
 
 # Temporal recall variants (no query needed)
-memanto recall --recent --limit 10                 # newest first
-memanto recall --as-of "2026-01-15"                # state at a point in time
-memanto recall --changed-since "last 7 days"       # what changed since
+memanto recall --recent --limit 10 --tool "__TOOL__"    # newest first
+memanto recall --as-of "2026-01-15" --tool "__TOOL__"   # state at a point in time
+memanto recall --changed-since "last 7 days" --tool "__TOOL__"  # what changed since
 
 # Synthesized answer (use for direct questions, "what did we decide about X?")
-memanto answer "question"
+memanto answer "question" --tool "__TOOL__"
 
 # Sync memories to project
 memanto memory sync --project-dir .
@@ -173,9 +179,14 @@ memanto memory sync --project-dir .
 
 
 def _base_instruction_content(
-    tool_phrase: str = "the terminal", note_suffix: str = ""
+    tool_phrase: str = "the terminal", note_suffix: str = "", tool: str = "agent"
 ) -> str:
-    """Generate base MEMANTO instruction content, adapted per agent."""
+    """Generate base MEMANTO instruction content, adapted per agent.
+
+    ``tool`` is the agent's registry slug, stamped into every example command
+    so the installed instructions tell that agent exactly what to declare on
+    ``--tool``.
+    """
     note_line = ""
     if note_suffix:
         note_line = f"\n> **Note**: {note_suffix}"
@@ -209,9 +220,13 @@ These are not suggestions. Follow each one on every turn.
    — a preference stated, a decision made, a fact learned, an instruction given, a goal set,
    a mistake corrected — run `memanto remember` immediately, in the same turn.
 4. **Always pass full metadata to `remember`.** Every `memanto remember` call MUST include
-   `--type`, `--confidence`, `--provenance`, and `--source <your_agent_name>`. Never let
-   these default. Untyped, unsourced memories pollute the agent's recall quality.
-5. **One memory operation goes through MEMANTO. All of them do.** Do not keep mental notes,
+   `--type`, `--confidence`, `--provenance`, and `--source "{tool}"`. Never let these
+   default. Untyped, unsourced memories pollute the agent's recall quality.
+5. **Always pass `--tool "{tool}"` on `recall` and `answer`.** Reads have no `--source`, and
+   this is how MEMANTO knows which agent is talking to it — it drives the live connection
+   view and the per-session tool attribution. Without it MEMANTO has to guess from
+   environment variables, which is unreliable and fails outright for some tools.
+6. **One memory operation goes through MEMANTO. All of them do.** Do not keep mental notes,
    in-context scratch pads, or "I'll remember this for next time" promises. If it matters
    beyond this turn, it goes into MEMANTO. If it doesn't, drop it.
 
@@ -221,11 +236,11 @@ MEMANTO gives you three primitives. They are equal-priority. Pick by intent, not
 
 | You want to... | Use | Why |
 |---|---|---|
-| Read raw memory chunks and apply them as context | `memanto recall "query"` | Best for context-building, multi-step work, comparing options |
-| Get one synthesized, grounded answer to a direct question | `memanto answer "question"` | Best for "what did we decide / prefer / commit to?" — saves you reading and merging |
-| Persist something memory-worthy | `memanto remember "content" --type ... --confidence ... --provenance ... --source ...` | Every preference, decision, fact, instruction, goal, lesson |
-| See what changed since last time | `memanto recall --changed-since "last 7 days"` | Catching up after a break |
-| See the most recent memories | `memanto recall --recent` | Fast context refresh |
+| Read raw memory chunks and apply them as context | `memanto recall "query" --tool "{tool}"` | Best for context-building, multi-step work, comparing options |
+| Get one synthesized, grounded answer to a direct question | `memanto answer "question" --tool "{tool}"` | Best for "what did we decide / prefer / commit to?" — saves you reading and merging |
+| Persist something memory-worthy | `memanto remember "content" --type ... --confidence ... --provenance ... --source "{tool}"` | Every preference, decision, fact, instruction, goal, lesson |
+| See what changed since last time | `memanto recall --changed-since "last 7 days" --tool "{tool}"` | Catching up after a break |
+| See the most recent memories | `memanto recall --recent --tool "{tool}"` | Fast context refresh |
 
 Do NOT always default to `recall`. If the user asked a direct question, `answer` is usually
 the right tool — it returns a grounded synthesis so you don't burn tokens re-reading raw
@@ -234,29 +249,29 @@ chunks.
 ### When to Call `remember` (Examples — Run Immediately)
 
 - User says *"I prefer tabs over spaces"*:
-  `memanto remember "User prefers tabs over spaces for indentation" --type preference --confidence 1.0 --provenance explicit_statement --source <your_agent_name>`
+  `memanto remember "User prefers tabs over spaces for indentation" --type preference --confidence 1.0 --provenance explicit_statement --source "{tool}"`
 - You decide to use Library X for reason Y:
-  `memanto remember "Chose Library X for reason Y; commit abc123" --type decision --confidence 0.95 --provenance inferred --source <your_agent_name>`
+  `memanto remember "Chose Library X for reason Y; commit abc123" --type decision --confidence 0.95 --provenance inferred --source "{tool}"`
 - User corrects an approach:
-  `memanto remember "User corrected: use pytest, not unittest" --type learning --confidence 1.0 --provenance corrected --source <your_agent_name>`
+  `memanto remember "User corrected: use pytest, not unittest" --type learning --confidence 1.0 --provenance corrected --source "{tool}"`
 - A failed approach taught you something:
-  `memanto remember "Batch size > 100 fails with TimeoutError" --type error --confidence 0.95 --provenance observed --source <your_agent_name>`
+  `memanto remember "Batch size > 100 fails with TimeoutError" --type error --confidence 0.95 --provenance observed --source "{tool}"`
 
 ### Command Reference
 
 ```bash
 # Store — ALWAYS pass full metadata
-memanto remember "content" --type <type> --confidence <0.0-1.0> --provenance <provenance> --source <agent_name>
+memanto remember "content" --type <type> --confidence <0.0-1.0> --provenance <provenance> --source "{tool}"
 
 # Recall raw context
-memanto recall "query"                              # semantic search
-memanto recall "query" --type <type> --limit 10     # filtered search
-memanto recall --recent --limit 10                  # newest first, no query
-memanto recall --as-of "2026-01-15"                 # state at a point in time
-memanto recall --changed-since "last 7 days"        # what changed since
+memanto recall "query" --tool "{tool}"                           # semantic search
+memanto recall "query" --type <type> --limit 10 --tool "{tool}"  # filtered search
+memanto recall --recent --limit 10 --tool "{tool}"               # newest first, no query
+memanto recall --as-of "2026-01-15" --tool "{tool}"              # state at a point in time
+memanto recall --changed-since "last 7 days" --tool "{tool}"     # what changed since
 
 # Synthesized answer (grounded RAG over memories)
-memanto answer "question"
+memanto answer "question" --tool "{tool}"
 
 # Re-sync MEMORY.md (project-local cache)
 memanto memory sync --project-dir .
@@ -279,52 +294,68 @@ def get_instruction_content(agent_name: str) -> str:
     """Get MEMANTO instruction section content for a specific agent."""
     templates = {
         "claude-code": _base_instruction_content(
+            tool="claude-code",
             tool_phrase="the Bash tool",
             note_suffix="The `memanto-memory` skill contains reference guidelines only (best practices, confidence levels, tagging). It is NOT executable — always use Bash for memanto commands.",
         ),
         "codex": _base_instruction_content(
+            tool="codex",
             tool_phrase="the terminal",
             note_suffix="The `memanto-memory` skill in `.agents/skills/memanto/` contains detailed reference guidelines (best practices, confidence levels, tagging).",
         ),
         "pi": _base_instruction_content(
+            tool="pi",
             tool_phrase="the terminal",
             note_suffix="A Pi extension auto-syncs MEMORY.md on each fresh session start; the `memanto-memory` skill in `.pi/skills/memanto/` (or `~/.pi/agent/skills/memanto/`) contains detailed reference guidelines.",
         ),
         "cursor": _get_mdc_content(),
         "windsurf": _base_instruction_content(
+            tool="windsurf",
             tool_phrase="the terminal",
             note_suffix="The `memanto-memory` skill in `.windsurf/skills/memanto/` contains detailed reference guidelines.",
         ),
         "gemini-cli": _base_instruction_content(
+            tool="gemini-cli",
             tool_phrase="the terminal",
             note_suffix="The `memanto-memory` skill in `.gemini/skills/memanto/` contains detailed reference guidelines.",
         ),
         "cline": _base_instruction_content(
+            tool="cline",
             tool_phrase="the terminal",
             note_suffix="Run `memanto memory sync --project-dir .` at the start of each session to populate MEMORY.md.",
         ),
         "continue": _base_instruction_content(
+            tool="continue",
             tool_phrase="the terminal",
             note_suffix="Run `memanto memory sync --project-dir .` at the start of each session to populate MEMORY.md.",
         ),
         "opencode": _base_instruction_content(
+            tool="opencode",
             tool_phrase="the terminal",
             note_suffix="The `memanto-memory` skill in `.agents/skills/memanto/` contains detailed reference guidelines.",
         ),
         "roo": _base_instruction_content(
+            tool="roo",
             tool_phrase="the terminal",
             note_suffix="Run `memanto memory sync --project-dir .` at the start of each session to populate MEMORY.md.",
         ),
         "github-copilot": _base_instruction_content(
+            tool="github-copilot",
             tool_phrase="the terminal",
             note_suffix="Run `memanto memory sync --project-dir .` at the start of each session to populate MEMORY.md.",
         ),
         "augment": _base_instruction_content(
+            tool="augment",
             tool_phrase="the terminal",
             note_suffix="The `memanto-memory` skill in `.augment/skills/memanto/` contains detailed reference guidelines.",
         ),
     }
-    return templates.get(agent_name, _base_instruction_content())
+    content = templates.get(agent_name)
+    if content is not None:
+        return content
+    # Agents without a tailored entry still get their own slug, so a new
+    # registry entry is never silently told to identify itself as "agent".
+    return _base_instruction_content(tool=agent_name)
 
 
 def _get_mdc_content() -> str:
@@ -362,7 +393,7 @@ through MEMANTO.
    happens — a preference stated, a decision made, a fact learned, an instruction given,
    a goal set, a mistake corrected — run `memanto remember` immediately, in the same turn.
 4. **Always pass full metadata to `remember`.** Every call MUST include `--type`,
-   `--confidence`, `--provenance`, and `--source <your_agent_name>`. Never let these
+   `--confidence`, `--provenance`, and `--source "cursor"`. Never let these
    default.
 5. **All memory operations go through MEMANTO.** No mental scratch pads, no "I'll
    remember this next time." If it matters beyond this turn, it goes into MEMANTO.
@@ -370,11 +401,13 @@ through MEMANTO.
 ## Memory Operations — Use the Right One
 
 ```bash
-memanto recall "query"      # raw memory chunks — for context-building, multi-step work
-memanto answer "question"   # one synthesized, grounded answer — for direct questions
-memanto recall --recent     # newest first, no query needed
-memanto recall --changed-since "last 7 days"
-memanto remember "content" --type <type> --confidence <0.0-1.0> --provenance <provenance> --source <agent_name>
+# Reads: always identify yourself with --tool so MEMANTO can show Cursor as a
+# live connection and attribute the session correctly.
+memanto recall "query" --tool "cursor"      # raw memory chunks — for context-building
+memanto answer "question" --tool "cursor"   # one synthesized, grounded answer
+memanto recall --recent --tool "cursor"     # newest first, no query needed
+memanto recall --changed-since "last 7 days" --tool "cursor"
+memanto remember "content" --type <type> --confidence <0.0-1.0> --provenance <provenance> --source "cursor"
 memanto memory sync --project-dir .
 ```
 
@@ -394,9 +427,15 @@ to?"). Equal priority — pick by intent.
 {MEMANTO_SENTINEL_END}"""
 
 
-def get_skill_content() -> str:
-    """Get the SKILL.md content (shared across all agents)."""
-    return SKILL_MD_CONTENT.strip() + "\n"
+def get_skill_content(agent_name: str = "agent") -> str:
+    """Get the SKILL.md content with *agent_name* stamped into every example.
+
+    The body is shared, but the tool slug is not: a skill installed for
+    Cursor must tell Cursor to identify itself as ``cursor``. Every agent
+    previously received examples hardcoded to ``claude_code``, so all of
+    them reported the wrong writer.
+    """
+    return SKILL_MD_CONTENT.replace("__TOOL__", agent_name).strip() + "\n"
 
 
 # Pi .ts extension content (auto-syncs MEMORY.md on each fresh session start).

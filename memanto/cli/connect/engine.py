@@ -315,7 +315,7 @@ def _install_skill(agent: AgentDef, project_path: Path, is_global: bool) -> str:
 
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_path = skill_dir / "SKILL.md"
-    skill_path.write_text(get_skill_content(), encoding="utf-8")
+    skill_path.write_text(get_skill_content(agent.name), encoding="utf-8")
 
     rel = _display_path(skill_path, is_global)
     return f"Deployed skill to {rel}"

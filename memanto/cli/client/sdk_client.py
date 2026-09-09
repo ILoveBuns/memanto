@@ -35,6 +35,7 @@ from memanto.app.constants import (
 from memanto.app.constants import (
     ProvenanceType as MemoryProvenance,
 )
+from memanto.app.services.activity_service import log_memory_activity
 from memanto.app.utils.client_identity import set_memanto_session
 from memanto.app.utils.errors import (
     AgentNotFoundError,
@@ -1312,6 +1313,11 @@ class SdkClient:
             header_prompt=header_prompt,
             footer_prompt=footer_prompt,
         )
+
+        # The RAG path calls Moorcheh directly rather than going through
+        # MemoryReadService, so it needs its own activity entry - otherwise
+        # `answer` is the one memory operation that leaves no trace.
+        log_memory_activity(op="answer", agent_id=agent_id)
 
         return {
             "agent_id": agent_id,

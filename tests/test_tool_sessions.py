@@ -13,6 +13,7 @@ from memanto.app.services.activity_service import (
 )
 from memanto.app.utils.client_identity import (
     ClientIdentity,
+    client_from_tool,
     detect_client,
     normalize_tool,
     reset_client,
@@ -407,3 +408,100 @@ def test_anonymous_http_caller_is_never_attributed_to_the_server_env(monkeypatch
     client = TestClient(_identity_probe_app())
 
     assert client.get("/probe").json()["tool"] == "unknown"
+
+
+# --------------------------------------------------------------------------
+# Explicit tool declaration (--tool / --source)
+# --------------------------------------------------------------------------
+
+
+def test_client_from_tool_normalizes_and_labels():
+    identity = client_from_tool("Claude Code")
+
+    assert identity.tool == "claude-code"
+    assert identity.display == "Claude Code"
+
+
+def test_recall_tool_flag_beats_environment(monkeypatch, tmp_path):
+    """An agent naming itself is exact; the environment is only a guess."""
+    from unittest.mock import MagicMock, patch
+
+    from typer.testing import CliRunner
+
+    from memanto.cli.commands._shared import app
+
+    monkeypatch.setenv("CLAUDECODE", "1")
+    captured = {}
+
+    client = MagicMock()
+    client.recall.return_value = {"memories": []}
+
+    def _capture(*_args, **_kwargs):
+        captured["tool"] = detect_client().tool
+        return {"memories": []}
+
+    client.recall.side_effect = _capture
+
+    with (
+        patch("memanto.cli.commands.memory.get_client", return_value=client),
+        patch(
+            "memanto.cli.commands.memory.config_manager.get_active_session",
+            return_value=("dev", "token"),
+        ),
+    ):
+        result = CliRunner().invoke(app, ["recall", "anything", "--tool", "cursor"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["tool"] == "cursor"
+
+
+def test_answer_accepts_the_tool_flag(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from typer.testing import CliRunner
+
+    from memanto.cli.commands._shared import app
+
+    monkeypatch.setenv("CLAUDECODE", "1")
+    captured = {}
+    client = MagicMock()
+
+    def _capture(*_args, **_kwargs):
+        captured["tool"] = detect_client().tool
+        return {"answer": "ok", "context_memories": []}
+
+    client.answer.side_effect = _capture
+
+    with (
+        patch("memanto.cli.commands.memory.get_client", return_value=client),
+        patch(
+            "memanto.cli.commands.memory.config_manager.get_active_session",
+            return_value=("dev", "token"),
+        ),
+    ):
+        result = CliRunner().invoke(app, ["answer", "what?", "--tool", "codex"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["tool"] == "codex"
+
+
+def test_remember_source_names_the_calling_tool(monkeypatch):
+    """`remember` has no --tool: --source already names the writer."""
+    from memanto.cli.commands.memory import _tool_from_source
+
+    assert _tool_from_source("cursor") == "cursor"
+    assert _tool_from_source("claude-code") == "claude-code"
+
+
+def test_a_human_source_does_not_become_a_connected_tool():
+    """A memory dictated by a person is still made by some tool.
+
+    Treating "user" as the caller would put a person on the connected-tools
+    diagram; falling through lets environment detection name the real tool.
+    """
+    from memanto.cli.commands.memory import _tool_from_source
+
+    assert _tool_from_source("user") is None
+    assert _tool_from_source("User") is None
+    assert _tool_from_source("agent") is None
+    assert _tool_from_source(None) is None

@@ -156,6 +156,22 @@ def display_for(tool: str) -> str:
     return tool.replace("-", " ").title()
 
 
+def client_from_tool(name: str) -> ClientIdentity:
+    """Build an identity for a tool that named itself.
+
+    An agent knows exactly what it is; environment sniffing only guesses. This
+    is the path a ``--tool`` flag or an ``X-Memanto-Client`` header takes, and
+    it is the only way tools that leave no distinctive environment marker can
+    be attributed at all.
+    """
+    slug = normalize_tool(name)
+    try:
+        project_dir = os.getcwd()
+    except OSError:
+        project_dir = None
+    return ClientIdentity(tool=slug, display=display_for(slug), project_dir=project_dir)
+
+
 def detect_client() -> ClientIdentity:
     """Identify the tool behind this call.
 
