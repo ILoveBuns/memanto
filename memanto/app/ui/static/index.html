@@ -4576,23 +4576,25 @@
                     sub.textContent = `Analysis in progress (${secs}s) — large sessions can take 1–2 minutes${runHint}`;
                 }
             }, 5000);
-            const res = await fetch('/api/ui/conflicts/generate/stream', {
-                method: 'POST',
-                headers,
-                credentials: 'same-origin',
-                body: JSON.stringify(body || {}),
-            });
-            if (!res.ok) {
-                clearInterval(tick);
-                const err = await res.json().catch(() => ({ detail: res.statusText }));
-                let msg = err.detail || res.statusText;
-                if (typeof msg === 'object') msg = JSON.stringify(msg);
-                throw new Error(msg);
-            }
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
             try {
+                const res = await fetch('/api/ui/conflicts/generate/stream', {
+                    method: 'POST',
+                    headers,
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body || {}),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: res.statusText }));
+                    let msg = err.detail || res.statusText;
+                    if (typeof msg === 'object') msg = JSON.stringify(msg);
+                    throw new Error(msg);
+                }
+                if (!res.body) {
+                    throw new Error('Conflict detection stream returned no response body');
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
                 while (true) {
                     const { value, done } = await reader.read();
                     if (value) {

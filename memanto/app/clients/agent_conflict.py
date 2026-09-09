@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -13,8 +14,26 @@ from memanto.app.utils.errors import MemoryOperationError
 
 DEFAULT_AGENT_CONFLICT_TIMEOUT = 300.0
 POLL_INTERVAL_S = 3.0
+CANCELLED_MESSAGE = "Conflict detection cancelled"
 
 ConflictProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise MemoryOperationError(CANCELLED_MESSAGE)
+
+
+def _sleep_or_cancel(
+    seconds: float, cancel_event: threading.Event | None = None
+) -> None:
+    if cancel_event is None:
+        time.sleep(seconds)
+        return
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        _raise_if_cancelled(cancel_event)
+        time.sleep(min(0.25, deadline - time.monotonic()))
 
 
 def parse_sse_block(block: str) -> dict[str, Any] | None:
@@ -54,10 +73,10 @@ def parse_sse_events(text: str) -> list[dict[str, Any]]:
 def iter_sse_events_from_stream(response: httpx.Response) -> Iterator[dict[str, Any]]:
     """Incrementally parse SSE events from an httpx streaming response."""
     buffer = ""
-    for chunk in response.iter_bytes():
+    for chunk in response.iter_text():
         if not chunk:
             continue
-        buffer += chunk.decode("utf-8", errors="replace")
+        buffer += chunk
         while "\n\n" in buffer:
             block, buffer = buffer.split("\n\n", 1)
             parsed = parse_sse_block(block)
@@ -274,12 +293,14 @@ def wait_for_conflict_report_from_run(
     poll_interval: float = POLL_INTERVAL_S,
     timeout: float = DEFAULT_AGENT_CONFLICT_TIMEOUT,
     on_event: ConflictProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Poll GET /agent/runs/{runId} until the conflict report is available."""
     deadline = time.monotonic() + timeout
     request_timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=15.0)
 
     while time.monotonic() < deadline:
+        _raise_if_cancelled(cancel_event)
         payload = _get_agent_run_payload(
             base_url=base_url,
             api_key=api_key,
@@ -303,7 +324,7 @@ def wait_for_conflict_report_from_run(
                 "run_status": status or "processing",
             },
         )
-        time.sleep(poll_interval)
+        _sleep_or_cancel(poll_interval, cancel_event)
 
     raise MemoryOperationError(
         f"Timed out waiting for agent run {run_id} to complete after {timeout:.0f}s"
@@ -338,8 +359,10 @@ def _finalize_agent_conflict_run(
     base_url: str | None = None,
     api_key: str | None = None,
     on_event: ConflictProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
     timeout: float = DEFAULT_AGENT_CONFLICT_TIMEOUT,
 ) -> dict[str, Any]:
+    _raise_if_cancelled(cancel_event)
     summary = summarize_agent_run(events)
     if summary["error_message"]:
         raise MemoryOperationError(
@@ -360,6 +383,7 @@ def _finalize_agent_conflict_run(
                 run_id=run_id,
                 timeout=timeout,
                 on_event=on_event,
+                cancel_event=cancel_event,
             )
         raise MemoryOperationError(
             "Agent conflict detection returned no message payload"
@@ -403,12 +427,15 @@ def detect_conflicts_via_agent(
     conflict_mode: str = "semantic",
     timeout: float = DEFAULT_AGENT_CONFLICT_TIMEOUT,
     on_event: ConflictProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Run Moorche ``POST /agent/run`` with ``task=detect_conflicts``.
 
     Returns the parsed conflict report JSON from the final SSE ``message`` event.
     Optional ``on_event`` receives each raw SSE event as ``(event_name, data)``.
+    Pass ``cancel_event`` to stop streaming or polling when the caller disconnects.
     """
+    _raise_if_cancelled(cancel_event)
     url = f"{base_url.rstrip('/')}/agent/run"
     body: dict[str, Any] = {
         "namespace": namespace,
@@ -450,6 +477,7 @@ def detect_conflicts_via_agent(
                         f"Agent conflict detection failed ({response.status_code}): {detail}"
                     )
                 for event in iter_sse_events_from_stream(response):
+                    _raise_if_cancelled(cancel_event)
                     events.append(event)
                     data = event.get("data") or {}
                     if event.get("event") == "run_started" and isinstance(
@@ -457,8 +485,12 @@ def detect_conflicts_via_agent(
                     ):
                         run_id = data["run_id"]
                     _emit_progress(on_event, event["event"], data)
+    except MemoryOperationError:
+        raise
     except httpx.HTTPError as exc:
         stream_error = exc
+
+    _raise_if_cancelled(cancel_event)
 
     if stream_error is not None:
         fallback_run_id = run_id or summarize_agent_run(events).get("run_id")
@@ -470,6 +502,7 @@ def detect_conflicts_via_agent(
                     run_id=fallback_run_id,
                     timeout=timeout,
                     on_event=on_event,
+                    cancel_event=cancel_event,
                 )
             except MemoryOperationError:
                 raise
@@ -487,5 +520,6 @@ def detect_conflicts_via_agent(
         base_url=base_url,
         api_key=api_key,
         on_event=on_event,
+        cancel_event=cancel_event,
         timeout=timeout,
     )

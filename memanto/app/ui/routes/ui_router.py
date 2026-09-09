@@ -10,6 +10,7 @@ import json
 import os
 import re
 import signal
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from memanto.app.clients.agent_conflict import (
+    CANCELLED_MESSAGE,
     conflict_progress_step,
     describe_conflict_progress,
 )
@@ -39,6 +41,7 @@ from memanto.app.routes.auth_deps import (
     set_session_cookie,
 )
 from memanto.app.services.session_service import get_session_service
+from memanto.app.utils.errors import MemoryOperationError
 from memanto.app.utils.temporal_helpers import utc_date_str
 from memanto.app.utils.validation import validate_safe_id
 from memanto.cli.client.direct_client import DirectClient
@@ -758,10 +761,18 @@ async def generate_conflict_report_stream(
 
     async def event_generator():
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[str, str | None, Any]] = asyncio.Queue()
+        cancel_event = threading.Event()
+        active = True
+
+        def safe_put(item: tuple[str, str | None, Any]) -> None:
+            if active:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
 
         def on_event(event_name: str, data: dict[str, Any]) -> None:
-            loop.call_soon_threadsafe(queue.put_nowait, ("progress", event_name, data))
+            if cancel_event.is_set():
+                return
+            safe_put(("progress", event_name, data))
 
         def worker() -> None:
             try:
@@ -769,50 +780,61 @@ async def generate_conflict_report_stream(
                     agent_id=str(agent_id),
                     date=str(date),
                     on_progress=on_event,
+                    cancel_event=cancel_event,
                 )
-                loop.call_soon_threadsafe(
-                    queue.put_nowait,
+                if cancel_event.is_set():
+                    return
+                safe_put(
                     (
                         "result",
                         None,
                         {"agent_id": agent_id, "date": date, **result},
-                    ),
-                )
-            except Exception as exc:
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", None, str(exc)))
-
-        loop.run_in_executor(None, worker)
-
-        yield (
-            "event: progress\n"
-            f"data: {json.dumps({'event': 'started', 'message': 'Connecting to conflict detection…', 'step': 'start'})}\n\n"
-        )
-
-        while True:
-            try:
-                kind, event_name, payload = await asyncio.wait_for(
-                    queue.get(), timeout=15.0
-                )
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
-                continue
-            if kind == "progress":
-                data = payload if isinstance(payload, dict) else {}
-                message = describe_conflict_progress(str(event_name), data)
-                step = conflict_progress_step(str(event_name), data)
-                if message or step:
-                    yield (
-                        "event: progress\n"
-                        f"data: {json.dumps({'event': event_name, 'message': message, 'step': step, 'detail': data}, default=str)}\n\n"
                     )
-            elif kind == "result":
-                yield f"event: result\ndata: {json.dumps(payload, default=str)}\n\n"
-                yield "event: done\ndata: {}\n\n"
-                break
-            elif kind == "error":
-                yield f"event: error\ndata: {json.dumps({'message': payload})}\n\n"
-                yield "event: done\ndata: {}\n\n"
-                break
+                )
+            except MemoryOperationError as exc:
+                if str(exc) == CANCELLED_MESSAGE:
+                    return
+                safe_put(("error", None, str(exc)))
+            except Exception as exc:
+                safe_put(("error", None, str(exc)))
+
+        worker_future = loop.run_in_executor(None, worker)
+
+        try:
+            yield (
+                "event: progress\n"
+                f"data: {json.dumps({'event': 'started', 'message': 'Connecting to conflict detection…', 'step': 'start'})}\n\n"
+            )
+
+            while True:
+                try:
+                    kind, event_name, payload = await asyncio.wait_for(
+                        queue.get(), timeout=15.0
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if kind == "progress":
+                    data = payload if isinstance(payload, dict) else {}
+                    message = describe_conflict_progress(str(event_name), data)
+                    step = conflict_progress_step(str(event_name), data)
+                    if message or step:
+                        yield (
+                            "event: progress\n"
+                            f"data: {json.dumps({'event': event_name, 'message': message, 'step': step, 'detail': data}, default=str)}\n\n"
+                        )
+                elif kind == "result":
+                    yield f"event: result\ndata: {json.dumps(payload, default=str)}\n\n"
+                    yield "event: done\ndata: {}\n\n"
+                    break
+                elif kind == "error":
+                    yield f"event: error\ndata: {json.dumps({'message': payload})}\n\n"
+                    yield "event: done\ndata: {}\n\n"
+                    break
+        finally:
+            active = False
+            cancel_event.set()
+            worker_future.cancel()
 
     return StreamingResponse(
         event_generator(),

@@ -1,8 +1,12 @@
 """Tests for Moorche agent conflict detection client."""
 
+import threading
+
 import httpx
+import pytest
 
 from memanto.app.clients.agent_conflict import (
+    CANCELLED_MESSAGE,
     conflict_progress_step,
     describe_conflict_progress,
     detect_conflicts_via_agent,
@@ -14,6 +18,7 @@ from memanto.app.clients.agent_conflict import (
     wait_for_conflict_report_from_run,
 )
 from memanto.app.services.daily_analysis_service import DailyAnalysisService
+from memanto.app.utils.errors import MemoryOperationError
 
 
 def test_parse_sse_events_extracts_message_payload():
@@ -109,7 +114,7 @@ def test_detect_conflicts_via_agent_parses_report(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def iter_bytes(self):
+        def iter_text(self):
             import json
 
             body = (
@@ -122,7 +127,7 @@ def test_detect_conflicts_via_agent_parses_report(monkeypatch):
                 "event: done\n"
                 'data: {"stop_reason":"end_turn"}\n\n'
             )
-            yield body.encode("utf-8")
+            yield body
 
     class FakeClient:
         def __enter__(self):
@@ -276,12 +281,12 @@ def test_detect_conflicts_via_agent_falls_back_to_run_fetch(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def iter_bytes(self):
+        def iter_text(self):
             yield (
-                b"event: run_started\n"
-                b'data: {"run_id":"run_fallback"}\n\n'
-                b"event: status\n"
-                b'data: {"phase":"analyzing"}\n\n'
+                "event: run_started\n"
+                'data: {"run_id":"run_fallback"}\n\n'
+                "event: status\n"
+                'data: {"phase":"analyzing"}\n\n'
             )
             raise httpx.RemoteProtocolError(
                 "peer closed connection without sending complete message body"
@@ -353,11 +358,96 @@ def test_detect_conflicts_via_agent_falls_back_to_run_fetch(monkeypatch):
 
 def test_iter_sse_events_from_stream_parses_incrementally():
     class FakeResponse:
-        def iter_bytes(self):
-            yield b"event: run_started\n"
-            yield b'data: {"run_id":"run_1"}\n\n'
-            yield b"event: done\n"
-            yield b'data: {"stop_reason":"end_turn"}\n\n'
+        def iter_text(self):
+            yield "event: run_started\n"
+            yield 'data: {"run_id":"run_1"}\n\n'
+            yield "event: done\n"
+            yield 'data: {"stop_reason":"end_turn"}\n\n'
 
     events = list(iter_sse_events_from_stream(FakeResponse()))
     assert [e["event"] for e in events] == ["run_started", "done"]
+
+
+def test_iter_sse_events_from_stream_handles_multibyte_text_across_chunks():
+    body = 'event: message\ndata: {"message":"café — résumé"}\n\n'
+
+    class FakeResponse:
+        def iter_text(self):
+            yield body[:20]
+            yield body[20:]
+
+    events = list(iter_sse_events_from_stream(FakeResponse()))
+    assert events[0]["event"] == "message"
+    assert events[0]["data"]["message"] == "café — résumé"
+
+
+def test_wait_for_conflict_report_from_run_respects_cancel_event(monkeypatch):
+    cancel_event = threading.Event()
+
+    def fake_get(*args, **kwargs):
+        cancel_event.set()
+        return type(
+            "FakeResponse",
+            (),
+            {
+                "status_code": 200,
+                "json": lambda self: {"status": "processing", "messages": []},
+            },
+        )()
+
+    monkeypatch.setattr("memanto.app.clients.agent_conflict.httpx.get", fake_get)
+    monkeypatch.setattr(
+        "memanto.app.clients.agent_conflict.time.sleep", lambda _s: None
+    )
+
+    with pytest.raises(MemoryOperationError, match=CANCELLED_MESSAGE):
+        wait_for_conflict_report_from_run(
+            base_url="https://api.moorcheh.ai/v1",
+            api_key="test-key",
+            run_id="run_cancel",
+            poll_interval=0.01,
+            timeout=5.0,
+            cancel_event=cancel_event,
+        )
+
+
+def test_detect_conflicts_via_agent_respects_cancel_event(monkeypatch):
+    cancel_event = threading.Event()
+
+    class FakeResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def iter_text(self):
+            cancel_event.set()
+            yield "event: run_started\n"
+            yield 'data: {"run_id":"run_cancel"}\n\n'
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "memanto.app.clients.agent_conflict.httpx.Client",
+        lambda timeout: FakeClient(),
+    )
+
+    with pytest.raises(MemoryOperationError, match=CANCELLED_MESSAGE):
+        detect_conflicts_via_agent(
+            base_url="https://api.moorcheh.ai/v1",
+            api_key="test-key",
+            namespace="memanto_agent_bot",
+            date="2026-09-08",
+            cancel_event=cancel_event,
+        )

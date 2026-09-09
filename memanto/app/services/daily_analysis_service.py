@@ -337,6 +337,7 @@ Format the output as a Markdown report:
         namespace: str,
         client: Any,
         on_progress=None,
+        cancel_event=None,
     ) -> dict[str, Any]:
         ai_model = get_active_llm_model(settings.SUMMARY_MODEL)
         generate_kwargs: dict[str, Any] = {
@@ -351,6 +352,8 @@ Format the output as a Markdown report:
 
         if on_progress is not None:
             generate_kwargs["on_event"] = on_progress
+        if cancel_event is not None:
+            generate_kwargs["cancel_event"] = cancel_event
 
         try:
             report = detect_conflicts_via_agent(**generate_kwargs)
@@ -478,7 +481,7 @@ Example response format:
         return self._save_conflict_report(agent_id, date, conflicts_data)
 
     def generate_conflict_report(
-        self, agent_id: str, date: str, on_progress=None
+        self, agent_id: str, date: str, on_progress=None, cancel_event=None
     ) -> dict[str, Any]:
         """
         Generate a structured conflict report (Contradictions, Conflicts, Updates, Duplicates).
@@ -491,7 +494,12 @@ Example response format:
 
         if parse_backend(settings.MEMANTO_BACKEND) == Backend.CLOUD:
             return self._generate_conflict_report_via_agent(
-                agent_id, date, namespace, client, on_progress=on_progress
+                agent_id,
+                date,
+                namespace,
+                client,
+                on_progress=on_progress,
+                cancel_event=cancel_event,
             )
 
         pattern = f"{agent_id}_{date}_*_summary.md"
