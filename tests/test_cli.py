@@ -8,7 +8,7 @@ Uses extensive mocking to intercept API calls across all command modules.
 
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import jwt
 import pytest
@@ -1267,6 +1267,7 @@ class TestMEMANTOCLI:
         mock_all_clients.generate_conflict_report.assert_called_once_with(
             agent_id="test-agent",
             date="2026-07-30",
+            on_progress=ANY,
         )
 
     def test_conflicts_list(self, mock_all_clients):

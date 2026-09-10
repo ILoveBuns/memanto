@@ -1373,7 +1373,9 @@ class SdkClient:
             "export": export_result,
         }
 
-    def generate_conflict_report(self, agent_id: str, date: str) -> dict[str, Any]:
+    def generate_conflict_report(
+        self, agent_id: str, date: str, on_progress=None, cancel_event=None
+    ) -> dict[str, Any]:
         """
         Generate the conflict report for an agent/date.
 
@@ -1397,7 +1399,9 @@ class SdkClient:
         )
 
         service = self._get_daily_analysis_service()
-        conflict_result = service.generate_conflict_report(agent_id, date)
+        conflict_result = service.generate_conflict_report(
+            agent_id, date, on_progress=on_progress, cancel_event=cancel_event
+        )
         return {"conflicts": conflict_result}
 
     # Conflict Resolution

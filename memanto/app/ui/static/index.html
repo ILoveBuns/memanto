@@ -4871,16 +4871,183 @@
             return v || todayKey();
         }
 
+        // ----- Conflict detection progress (mirrors migrate overlay) -----
+        const CONFLICT_STEPS = [
+            { id: 'start', label: 'Starting' },
+            { id: 'search', label: 'Loading & similarity' },
+            { id: 'detect', label: 'Analyzing contradictions' },
+            { id: 'done', label: 'Complete' },
+        ];
+
+        function conflictProgressMarkup(title, sub, activeStep) {
+            const pills = CONFLICT_STEPS.map(s => {
+                let cls = '';
+                if (s.id === activeStep) cls = 'active';
+                else {
+                    const order = CONFLICT_STEPS.findIndex(x => x.id === activeStep);
+                    const me = CONFLICT_STEPS.findIndex(x => x.id === s.id);
+                    if (order > me) cls = 'done';
+                }
+                return `<span class="mig-step-pill ${cls}"><span class="dot"></span>${escHtml(s.label)}</span>`;
+            }).join('');
+            return `
+                <div class="mig-progress">
+                    <div class="mig-progress-inner">
+                        <div class="mig-orbit"><div class="ring"></div><div class="ring inner"></div><div class="core"></div></div>
+                        <div class="mig-progress-title" id="conflictProgressTitle">${escHtml(title)}</div>
+                        <div class="mig-progress-sub" id="conflictProgressSub">${escHtml(sub || '')}</div>
+                        <div class="mig-step-list" id="conflictStepList">${pills}</div>
+                        <div class="mig-bar indeterminate" id="conflictBar"><div class="mig-bar-fill"></div></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function setConflictProgress(step, sub) {
+            const root = document.getElementById('conflictsContent');
+            if (!root) return;
+            const titles = {
+                start: 'Detecting conflicts',
+                search: 'Loading & finding similar pairs',
+                detect: 'Analyzing contradictions',
+                done: 'Finishing up',
+            };
+            root.innerHTML = conflictProgressMarkup(titles[step] || 'Detecting conflicts', sub || '', step);
+        }
+
+        function parseSseBlock(block) {
+            if (!block || !block.trim()) return null;
+            let eventName = 'message';
+            const dataLines = [];
+            for (const line of block.split('\n')) {
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+            }
+            if (!dataLines.length) return null;
+            try {
+                return { eventName, data: JSON.parse(dataLines.join('')) };
+            } catch {
+                return null;
+            }
+        }
+
+        function conflictRunSubline(state, message) {
+            const parts = [];
+            if (message) parts.push(message);
+            if (state.runId) parts.push(`Run ${state.runId}`);
+            return parts.join(' · ');
+        }
+
+        function handleConflictStreamEvent(eventName, data, state) {
+            if (eventName === 'progress') {
+                const detail = data.detail || {};
+                if (detail.run_id) state.runId = detail.run_id;
+                const step = data.step || 'start';
+                let message = data.message || '';
+                if (data.event === 'run_started' && detail.run_id) {
+                    state.runId = detail.run_id;
+                }
+                if (data.event === 'conflict_detection_completed') {
+                    const count = typeof detail.count === 'number' ? detail.count : null;
+                    if (count !== null) {
+                        message = count > 0
+                            ? `Found ${count} conflict${count === 1 ? '' : 's'} — saving report…`
+                            : 'No conflicts found — saving report…';
+                    }
+                }
+                if (detail.phase === 'waiting') {
+                    message = message || `Waiting for Moorche run ${state.runId || detail.run_id || ''}…`;
+                }
+                setConflictProgress(step, conflictRunSubline(state, message));
+            } else if (eventName === 'result') {
+                state.result = data;
+                const conflictResult = (data.conflicts && data.conflicts.status)
+                    ? data.conflicts
+                    : (data.conflicts && data.conflicts.conflicts) || {};
+                const count = conflictResult.conflict_count || 0;
+                setConflictProgress('done', count > 0
+                    ? `Saved ${count} conflict${count === 1 ? '' : 's'} for ${data.date || conflictsDateValue()}`
+                    : 'Conflict report saved');
+            } else if (eventName === 'error') {
+                throw new Error(data.message || 'Conflict detection failed');
+            }
+        }
+
+        async function streamConflictGenerate(body) {
+            const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
+            if (S.token) headers['X-Session-Token'] = S.token;
+            const started = Date.now();
+            const state = { result: null, runId: null };
+            const tick = setInterval(() => {
+                const secs = Math.round((Date.now() - started) / 1000);
+                const sub = document.getElementById('conflictProgressSub');
+                if (sub && secs >= 10) {
+                    const runHint = state.runId ? ` · Run ${state.runId}` : '';
+                    sub.textContent = `Analysis in progress (${secs}s) — large sessions can take 1–2 minutes${runHint}`;
+                }
+            }, 5000);
+            try {
+                const res = await fetch('/api/ui/conflicts/generate/stream', {
+                    method: 'POST',
+                    headers,
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body || {}),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: res.statusText }));
+                    let msg = err.detail || res.statusText;
+                    if (typeof msg === 'object') msg = JSON.stringify(msg);
+                    throw new Error(msg);
+                }
+                if (!res.body) {
+                    throw new Error('Conflict detection stream returned no response body');
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (value) {
+                        buffer += decoder.decode(value, { stream: true });
+                        const blocks = buffer.split('\n\n');
+                        buffer = blocks.pop() || '';
+                        for (const block of blocks) {
+                            const parsed = parseSseBlock(block);
+                            if (parsed) handleConflictStreamEvent(parsed.eventName, parsed.data, state);
+                        }
+                    }
+                    if (done) break;
+                }
+                buffer += decoder.decode();
+                if (buffer.trim()) {
+                    const parsed = parseSseBlock(buffer);
+                    if (parsed) handleConflictStreamEvent(parsed.eventName, parsed.data, state);
+                }
+            } finally {
+                clearInterval(tick);
+            }
+            if (!state.result) throw new Error('Conflict detection returned no result');
+            return state.result;
+        }
+
         async function detectConflictsNow() {
             const btn = document.getElementById('btnDetectConflicts');
             const prev = btn ? btn.innerHTML : null;
+            if (!hasActiveSession()) {
+                toast('No active agent/session. Activate an agent on the Agents page first.', 'error');
+                return;
+            }
             if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Detecting...'; }
+            const date = conflictsDateValue();
+            setConflictProgress('start', `Scanning ${date} for ${S.agentId}…`);
             try {
-                const date = conflictsDateValue();
-                const data = await api('POST', '/api/ui/conflicts/generate', { date });
-                const status = (data.conflicts && data.conflicts.status) || 'unknown';
+                const data = await streamConflictGenerate({ date, agent_id: S.agentId });
+                const conflictResult = (data.conflicts && data.conflicts.status)
+                    ? data.conflicts
+                    : (data.conflicts && data.conflicts.conflicts) || {};
+                const status = conflictResult.status || 'unknown';
                 if (status === 'success') {
-                    const count = (data.conflicts && data.conflicts.conflict_count) || 0;
+                    const count = conflictResult.conflict_count || 0;
                     toast(count > 0
                         ? `Conflict detection complete: ${count} conflict(s) found.`
                         : 'Conflict detection complete: no conflicts found.');
@@ -4897,6 +5064,7 @@
                 await invalidateConflictState();
             } catch (e) {
                 toast('Failed to detect conflicts: ' + e.message, 'error');
+                await loadConflicts();
             } finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = prev; }
             }
@@ -5473,7 +5641,8 @@
                 const dateInput = document.getElementById('conflictsDateInput');
                 if (dateInput && !dateInput.value) dateInput.value = todayKey();
                 const date = conflictsDateValue();
-                const data = await api('GET', `/api/ui/conflicts?date=${encodeURIComponent(date)}`);
+                const agentQ = S.agentId ? `&agent_id=${encodeURIComponent(S.agentId)}` : '';
+                const data = await api('GET', `/api/ui/conflicts?date=${encodeURIComponent(date)}${agentQ}`);
                 const conflicts = data.conflicts || [];
                 await fetchConflictScans();
                 await fetchRecentMemories();
