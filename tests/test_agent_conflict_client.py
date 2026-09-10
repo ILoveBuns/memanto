@@ -1,6 +1,8 @@
 """Tests for Moorche agent conflict detection client."""
 
+import json as json_mod
 import threading
+import time
 
 import httpx
 import pytest
@@ -370,15 +372,69 @@ def test_iter_sse_events_from_stream_parses_incrementally():
 
 def test_iter_sse_events_from_stream_handles_multibyte_text_across_chunks():
     body = 'event: message\ndata: {"message":"café — résumé"}\n\n'
+    encoded = body.encode("utf-8")
+    split_at = encoded.index(b"caf") + 4
+    assert split_at < len(encoded)
+    try:
+        encoded[:split_at].decode("utf-8")
+        pytest.fail("expected UTF-8 split to fall inside a multibyte character")
+    except UnicodeDecodeError:
+        pass
 
-    class FakeResponse:
-        def iter_text(self):
-            yield body[:20]
-            yield body[20:]
+    class ChunkStream(httpx.SyncByteStream):
+        def __init__(self, chunks: list[bytes]):
+            self._chunks = chunks
 
-    events = list(iter_sse_events_from_stream(FakeResponse()))
+        def __iter__(self):
+            yield from self._chunks
+
+    request = httpx.Request("POST", "https://example.com/v1/agent/run")
+    response = httpx.Response(
+        200,
+        request=request,
+        stream=ChunkStream([encoded[:split_at], encoded[split_at:]]),
+    )
+
+    events = list(iter_sse_events_from_stream(response))
     assert events[0]["event"] == "message"
     assert events[0]["data"]["message"] == "café — résumé"
+
+
+def test_wait_for_conflict_report_from_run_does_not_return_completed_after_cancel(
+    monkeypatch,
+):
+    cancel_event = threading.Event()
+    report = {"conflicts": [], "count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "status": "completed",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"text": json_mod.dumps(report)}],
+                    }
+                ],
+            }
+
+    def fake_get(*args, **kwargs):
+        cancel_event.set()
+        return FakeResponse()
+
+    monkeypatch.setattr("memanto.app.clients.agent_conflict.httpx.get", fake_get)
+
+    with pytest.raises(MemoryOperationError, match=CANCELLED_MESSAGE):
+        wait_for_conflict_report_from_run(
+            base_url="https://api.moorcheh.ai/v1",
+            api_key="test-key",
+            run_id="run_cancel_completed",
+            poll_interval=0.01,
+            timeout=5.0,
+            cancel_event=cancel_event,
+        )
 
 
 def test_wait_for_conflict_report_from_run_respects_cancel_event(monkeypatch):
@@ -409,6 +465,59 @@ def test_wait_for_conflict_report_from_run_respects_cancel_event(monkeypatch):
             timeout=5.0,
             cancel_event=cancel_event,
         )
+
+
+def test_detect_conflicts_via_agent_cancels_during_blocking_stream_read(monkeypatch):
+    cancel_event = threading.Event()
+
+    class FakeResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def close(self):
+            self._closed = True
+
+        def iter_text(self):
+            self._closed = False
+            while not self._closed:
+                time.sleep(0.01)
+            yield from ()
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "memanto.app.clients.agent_conflict.httpx.Client",
+        lambda timeout: FakeClient(),
+    )
+
+    def cancel_soon() -> None:
+        time.sleep(0.05)
+        cancel_event.set()
+
+    threading.Thread(target=cancel_soon, daemon=True).start()
+    start = time.monotonic()
+    with pytest.raises(MemoryOperationError, match=CANCELLED_MESSAGE):
+        detect_conflicts_via_agent(
+            base_url="https://api.moorcheh.ai/v1",
+            api_key="test-key",
+            namespace="memanto_agent_bot",
+            date="2026-09-08",
+            cancel_event=cancel_event,
+        )
+    assert time.monotonic() - start < 2.0
 
 
 def test_detect_conflicts_via_agent_respects_cancel_event(monkeypatch):

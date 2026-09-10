@@ -743,7 +743,41 @@ async def generate_conflict_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/ui/conflicts/generate/stream")
+@router.post(
+    "/api/ui/conflicts/generate/stream",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": (
+                "SSE stream of conflict-detection progress and terminal payloads. "
+                "Events: `progress` (status updates with optional `message`, `step`, "
+                "and `detail`), `result` (final report JSON), `error` (failure message), "
+                "and `done` (stream end). Comment lines `: keepalive` are sent during "
+                "long waits."
+            ),
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "format": "event-stream",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "No API key configured",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"detail": {"type": "string"}},
+                        "required": ["detail"],
+                    }
+                }
+            },
+        },
+    },
+)
 async def generate_conflict_report_stream(
     request: Request,
     body: dict | None = None,

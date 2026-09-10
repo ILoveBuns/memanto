@@ -70,18 +70,45 @@ def parse_sse_events(text: str) -> list[dict[str, Any]]:
     return events
 
 
-def iter_sse_events_from_stream(response: httpx.Response) -> Iterator[dict[str, Any]]:
+def iter_sse_events_from_stream(
+    response: httpx.Response,
+    cancel_event: threading.Event | None = None,
+) -> Iterator[dict[str, Any]]:
     """Incrementally parse SSE events from an httpx streaming response."""
+    stop_watcher = threading.Event()
+
+    def _close_on_cancel() -> None:
+        while not stop_watcher.wait(0.25):
+            if cancel_event is not None and cancel_event.is_set():
+                response.close()
+                return
+
+    watcher: threading.Thread | None = None
+    if cancel_event is not None:
+        watcher = threading.Thread(target=_close_on_cancel, daemon=True)
+        watcher.start()
+
     buffer = ""
-    for chunk in response.iter_text():
-        if not chunk:
-            continue
-        buffer += chunk
-        while "\n\n" in buffer:
-            block, buffer = buffer.split("\n\n", 1)
-            parsed = parse_sse_block(block)
-            if parsed:
-                yield parsed
+    try:
+        for chunk in response.iter_text():
+            _raise_if_cancelled(cancel_event)
+            if not chunk:
+                continue
+            buffer += chunk
+            while "\n\n" in buffer:
+                block, buffer = buffer.split("\n\n", 1)
+                parsed = parse_sse_block(block)
+                if parsed:
+                    yield parsed
+    except httpx.StreamClosed:
+        _raise_if_cancelled(cancel_event)
+        raise
+    finally:
+        stop_watcher.set()
+        if watcher is not None:
+            watcher.join(timeout=1.0)
+
+    _raise_if_cancelled(cancel_event)
     tail = buffer.strip()
     if tail:
         parsed = parse_sse_block(tail)
@@ -307,6 +334,7 @@ def wait_for_conflict_report_from_run(
             run_id=run_id,
             timeout=request_timeout.read or 30.0,
         )
+        _raise_if_cancelled(cancel_event)
         status = str(payload.get("status") or "")
 
         if status == "completed":
@@ -476,7 +504,9 @@ def detect_conflicts_via_agent(
                     raise MemoryOperationError(
                         f"Agent conflict detection failed ({response.status_code}): {detail}"
                     )
-                for event in iter_sse_events_from_stream(response):
+                for event in iter_sse_events_from_stream(
+                    response, cancel_event=cancel_event
+                ):
                     _raise_if_cancelled(cancel_event)
                     events.append(event)
                     data = event.get("data") or {}
@@ -488,6 +518,7 @@ def detect_conflicts_via_agent(
     except MemoryOperationError:
         raise
     except httpx.HTTPError as exc:
+        _raise_if_cancelled(cancel_event)
         stream_error = exc
 
     _raise_if_cancelled(cancel_event)
